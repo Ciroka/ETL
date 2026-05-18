@@ -34,11 +34,12 @@ ORDER BY co.anio;
 -- CONSULTA 3
 -- TOP 10 departamentos con mayor producción de maíz en el último año registrado (2017)
 SELECT
-    co.anio
-    co.cultivo
+    co.anio,
+    co.cultivo,
+	de.nombre AS nombre_departamento,
     SUM(co.produccion_tm) AS produccion_total
 FROM cosechas co
 JOIN departamentos de ON co.departamento_id = de.id
-GROUP BY de.nombre
+GROUP BY de.nombre, co.anio, co.cultivo, co.produccion_tm
 ORDER BY SUM(co.produccion_tm) DESC
 LIMIT 10;
