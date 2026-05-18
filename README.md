@@ -152,7 +152,7 @@ docker compose down -v
 pgadmin:
    image: dpage/pgadmin4
       environment:
-         - PGADMIN_DEFAULT_EMAIL=postgresql@postgressql.com
+         - PGADMIN_DEFAULT_EMAIL=postgresql@postgresql.com
          - PGADMIN_DEFAULT_PASSWORD_FILE=/run/secrets/db-password
       secrets:
          - db-password

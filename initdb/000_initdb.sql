@@ -1,6 +1,8 @@
 \set ON_ERROR_STOP on
 
--- Paso 1
+-- #################################################################
+-- Paso 1: Eliminación de tablas para re-inicilización del contenedor
+
 DROP TABLE IF EXISTS moliendas CASCADE;
 DROP TABLE IF EXISTS campanias CASCADE;
 DROP TABLE IF EXISTS siembras CASCADE;
@@ -11,7 +13,9 @@ DROP TABLE IF EXISTS paises CASCADE;
 DROP TABLE IF EXISTS departamentos CASCADE;
 DROP TABLE IF EXISTS unidades_de_medida CASCADE;
 
--- Paso 2:
+-- #################################################################
+-- Paso 2: Creación de las tablas de entidad
+
 CREATE TABLE paises (
     id BIGINT PRIMARY KEY,
     nombre VARCHAR(50)
@@ -73,7 +77,8 @@ CREATE TABLE moliendas (
     CONSTRAINT fk_moliendas_cultivo FOREIGN KEY (cultivo) REFERENCES cultivos(nombre)
 );
 
--- Paso 3:
+-- #################################################################
+-- Paso 3: Creación de tablas temporales para datos csv.
 
 CREATE TEMP TABLE tmp_maiz_serie (
     cultivo TEXT,
@@ -120,7 +125,10 @@ CREATE TEMP TABLE tmp_molienda_granos (
     arroz INT
 );
 
--- Paso 4
+-- #################################################################
+-- Paso 4: Inserción de datos a las tablas temporales
+-- Se utiliza COPY para mayor eficiencia con datos masivos.
+
 COPY tmp_maiz_serie
 FROM '/csv/maiz-serie-1923-2024.csv'
 WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'LATIN1');
@@ -133,15 +141,27 @@ COPY tmp_molienda_granos
 FROM '/csv/molienda-de-granos-a-diciembre-2017.csv'
 WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'LATIN1');
 
+-- El ENCODING indica la codificación del archivo original. PostgreSQL lo lee en base
+-- a ese formato y luego lo transforma a UTF-8 para almacenar los datos.
 
--- Paso 5
 
+-- #################################################################
+-- Paso 5: Inserción de los datos temporales a las tablas de entidad.
+-- Algunos datos se desprecian por ser calculables o irrelevantes.
+
+-- NOTAS:
+-- * Utilizamos DISTINCT para no almacenar datos duplicados, por su aparición repetida en los .csv.
+-- * Utilizamos UNION ALL para juntar la información de varias tablas con campos idénticos.
+-- * COALESCE(campo, valor_por_defecto) se utilizó para reemplazar valores NULL por un valor por defecto.
+-- * REPLACE(campo, valor_original, valor_final) se utilizó para corregir errores de codificación y almacenar
+--   los datos correctamente en las tablas de entidad.
+-- * Los cultivos se insertaron de forma directa ya que solo trabajaremos con los 4 especificados.
 
 INSERT INTO paises (
     id,
     nombre
 )
-SELECT DISTINCT
+SELECT DISTINCT ON (pais_id)
     pais_id,
     nom_pais
 FROM tmp_molienda_granos;
@@ -164,7 +184,9 @@ FROM (
     SELECT
         provincia_id,
         provincia
-    FROM tmp_trigo_serie) AS datos_provincias;
+    FROM tmp_trigo_serie
+) AS datos_provincias;
+
 
 INSERT INTO departamentos (
     id,
@@ -181,21 +203,24 @@ FROM (
         departamento,
         provincia_id
     FROM tmp_maiz_serie 
-    WHERE departamento_id IS NOT NULL and departamento IS NOT NULL
+    WHERE departamento_id IS NOT NULL AND departamento IS NOT NULL
     UNION ALL
     SELECT
         departamento_id,
         departamento,
         provincia_id
     FROM tmp_trigo_serie 
-    WHERE departamento_id IS NOT NULL and departamento IS NOT NULL
-    ) AS datos_departamentos;
+    WHERE departamento_id IS NOT NULL AND departamento IS NOT NULL
+) AS datos_departamentos;
 
-INSERT INTO cultivos(nombre) VALUES 
-('trigo'),
-('trigo pan'),
-('trigo candeal'),
-('maíz');
+
+INSERT INTO cultivos (nombre)
+VALUES 
+    ('trigo'),
+    ('trigo pan'),
+    ('trigo candeal'),
+    ('maíz');
+
 
 INSERT INTO siembras (
     superficie_sembrada_ha,
@@ -213,7 +238,7 @@ FROM (
         superficie_sembrada_ha,
         departamento_id,
         anio,
-        REPLACE(cultivo,'maï¿½z', 'maíz') AS cultivo
+        REPLACE(cultivo, 'maï¿½z', 'maíz') AS cultivo
     FROM tmp_maiz_serie
     UNION ALL
     SELECT 
@@ -221,7 +246,9 @@ FROM (
         departamento_id,
         anio,
         cultivo
-    FROM tmp_trigo_serie) AS datos_siembra;
+    FROM tmp_trigo_serie
+) AS datos_siembra;
+
 
 INSERT INTO cosechas (
     superficie_cosechada_ha,
@@ -252,7 +279,8 @@ FROM (
         departamento_id,
         produccion_tm
     FROM tmp_trigo_serie
-    ) AS datos_cosechas; 
+) AS datos_cosechas;
+
 
 INSERT INTO unidades_de_medida (
     id,
@@ -263,7 +291,8 @@ SELECT DISTINCT ON (uni_med_id)
     nom_unimed
 FROM tmp_molienda_granos;
 
---Maiz
+
+-- Inserción de datos de molienda sobre maíz
 INSERT INTO moliendas (
     anio,
     cantidad,
@@ -278,13 +307,14 @@ SELECT
     uni_med_id
 FROM tmp_molienda_granos;
 
---Trigo Candeal
+-- Inserción de datos de molienda sobre trigo candeal
 INSERT INTO moliendas (
     anio,
     cantidad,
     pais_id,
     cultivo,
-    unidad_medida_id)
+    unidad_medida_id
+)
 SELECT 
     anio,
     COALESCE(trigo_candeal, 0),
@@ -293,13 +323,14 @@ SELECT
     uni_med_id
 FROM tmp_molienda_granos;
 
---Trigo Pan
+-- Inserción de datos de molienda sobre trigo pan
 INSERT INTO moliendas (
     anio,
     cantidad,
     pais_id,
     cultivo,
-    unidad_medida_id)
+    unidad_medida_id
+)
 SELECT 
     anio,
     COALESCE(trigo_pan, 0),
