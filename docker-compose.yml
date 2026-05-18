@@ -1,0 +1,40 @@
+volumes: 
+  postgres-db:
+      external: false  
+
+secrets:
+  db-password:
+    file: password.txt
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db-password
+      POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=es-AR --auth-local=trust"
+    secrets: 
+      - db-password
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready" ]
+      interval: 10s
+      timeout: 2s
+      retries: 5
+    volumes: 
+      - postgres-db:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d
+      - ./csv:/csv
+    ports:
+      - 5438:5438
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=postgresql@postgressql.com
+      - PGADMIN_DEFAULT_PASSWORD_FILE=/run/secrets/db-password
+    secrets:
+      - db-password
+    ports:
+      - 80:80
+    depends_on:
+      db:
+        condition: service_healthy
