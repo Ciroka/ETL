@@ -104,7 +104,7 @@ Antes de cargar los datos al modelo final se creó una tabla staging por cada ar
 
 **Una tabla por CSV:** Cada archivo tiene una estructura de columnas diferente.
 
-### 5.3 Transform & Load — COPY con conversión de encoding
+### 5.3 Transform & Load: COPY con conversión de encoding
 
 La carga al staging se realiza con el comando `COPY` de PostgreSQL, que es la forma más eficiente de importar archivos CSV con datos masivos.
 
