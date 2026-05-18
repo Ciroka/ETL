@@ -146,7 +146,7 @@ docker compose down -v
 
 ## 7. Consultas SQL
 
-> El análisis de los datos mediante las consultas SQL puede realizarse desde la terminal, conectándose al contenedor mediante el comando anterior, o bien desde pgAdmin conectandose a la url http://localhost:80, o al puerto que se haya configurado en el `docker-compose.yml`.
+> El análisis de los datos mediante las consultas SQL puede realizarse desde la terminal, conectándose al contenedor mediante el comando anterior, o bien desde pgAdmin conectándose a la url http://localhost:80, o al puerto que se haya configurado en el `docker-compose.yml`.
 
 ```yml
 pgadmin:
