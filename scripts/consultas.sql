@@ -51,10 +51,10 @@ SELECT
     co.cultivo,
     SUM(co.superficie_cosechada_ha) AS superficie_cosechada_total,
     superficie_sembrada_total,
-    ROUND(SUM(co.superficie_cosechada_ha) * 100 / (superficie_sembrada_total)::NUMERIC,2) AS porcentaje_cosecha_de_lo_sembrado
+    ROUND(SUM(co.superficie_cosechada_ha) * 100 / (superficie_sembrada_total)::NUMERIC, 2) AS porcentaje_cosecha_de_lo_sembrado
 FROM cosechas co
 JOIN ( 
-    SELECT cultivo ,anio,SUM(superficie_sembrada_ha) AS superficie_sembrada_total
+    SELECT cultivo, anio, SUM(superficie_sembrada_ha) AS superficie_sembrada_total
     FROM siembras 
     GROUP BY anio, cultivo
 ) AS s ON co.anio = s.anio AND co.cultivo = s.cultivo
