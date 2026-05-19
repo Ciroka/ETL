@@ -83,7 +83,13 @@ file csv/*.csv
 ```
  
 Resultado:
- 
+
+```
+csv/maiz-serie-1923-2024.csv:                CSV ISO-8859 text
+csv/molienda-de-granos-a-diciembre-2017.csv: CSV ISO-8859 text
+csv/trigo-serie-1927-2025.csv:               CSV ISO-8859 text
+```
+Como había presentes errores de codificación en los archivos e intentamos solucionarlo con varios métodos, ya sea especificando el encoding en el comando copy, también intentamos arreglarlo haciendo un script de Python pero siempre llegábamos al mismo resultado, que era arreglarlo manualmente. Debido a esto hicimos uso de la IA en esta parte y le solicitamos que nos cambiara el archivo a codificación UTF-8. Debido a eso, si se ejecuta dicho comando el resultado será:
 ```
 csv/maiz-serie-1923-2024.csv:                CSV Unicode text, UTF-8 text
 csv/molienda-de-granos-a-diciembre-2017.csv: CSV Unicode text, UTF-8 text
