@@ -131,7 +131,7 @@ CREATE TEMP TABLE tmp_molienda_granos (
 
 COPY tmp_maiz_serie
 FROM '/csv/maiz-serie-1923-2024.csv'
-WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'UTF-8');
+WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'LATIN1');
 
 COPY tmp_trigo_serie 
 FROM '/csv/trigo-serie-1927-2025.csv'
@@ -267,7 +267,7 @@ FROM (
     SELECT
         superficie_cosechada_ha,
         anio,
-        REPLACE(cultivo, 'ma�z', 'maíz') AS cultivo,
+        REPLACE(cultivo, 'maï¿½z', 'maíz') AS cultivo,
         departamento_id,
         produccion_tm
     FROM tmp_maiz_serie

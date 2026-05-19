@@ -13,6 +13,7 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/db-password
       POSTGRES_DB: postgres
       POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=es-AR --auth-local=trust"
+      PGCLIENTENCODING: "UTF8"
     secrets: 
       - db-password
     healthcheck:
