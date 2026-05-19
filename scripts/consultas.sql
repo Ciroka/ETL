@@ -39,7 +39,7 @@ SELECT
 	de.nombre AS nombre_departamento,
     SUM(co.produccion_tm) AS produccion_total
 FROM cosechas co
-JOIN departamentos de ON co.departamento_id = de.id and co.anio = 2017
+JOIN departamentos de ON co.departamento_id = de.id AND co.anio = 2017
 GROUP BY de.nombre, co.anio, co.cultivo, co.produccion_tm
 ORDER BY SUM(co.produccion_tm) DESC
 LIMIT 10;

@@ -1,8 +1,8 @@
 # TP ETL — Datos Agrícolas Argentina
 
-> **Trabajo Práctico:** Implementación de un flujo de datos ETL para el almacenamiento y análisis de datos masivos.     
-> **Fuente de datos:** [Portal de Datos Abiertos de la República Argentina](https://www.datos.gob.ar/dataset)     
-> **Motor:** PostgreSQL 17    
+> **Trabajo Práctico:** Implementación de un flujo de datos ETL para el almacenamiento y análisis de datos masivos.
+> **Fuente de datos:** [Portal de Datos Abiertos de la República Argentina](https://www.datos.gob.ar/dataset)
+> **Motor:** PostgreSQL 17
 > **Entorno:** Docker
 
 ---
@@ -14,9 +14,9 @@
 3. [Datasets utilizados](#3-datasets-utilizados)
 4. [Modelo de base de datos](#4-modelo-de-base-de-datos)
 5. [Proceso ETL](#5-proceso-etl)
-   - [Extract: detección de encoding](#51-extract--detección-de-encoding)
+   - [Extract: detección y corrección de encoding](#51-extract-detección-y-corrección-de-encoding)
    - [Tablas staging](#52-tablas-staging)
-   - [Transform & Load: COPY con conversión de encoding](#53-transform--load--copy-con-conversión-de-encoding)
+   - [Transform & Load](#53-transform--load)
 6. [Levantar el entorno](#6-levantar-el-entorno)
 7. [Consultas SQL](#7-consultas-sql)
 
@@ -24,7 +24,7 @@
 
 ## 1. Requisitos
 
-- Los archivos CSV en la carpeta `csv/` del proyecto (ver en la sección 3)
+- Los archivos CSV en la carpeta `csv/` del proyecto (ver sección 3)
 
 No se requiere instalar PostgreSQL ni ninguna otra dependencia localmente.
 
@@ -33,17 +33,17 @@ No se requiere instalar PostgreSQL ni ninguna otra dependencia localmente.
 ## 2. Estructura del proyecto
 
 ```
-TP-ETL/
-├── csv/                      # datasets descargados de datos.gob.ar
+practicoetl/
+├── csv/
 │   ├── trigo-serie-1927-2025.csv
 │   ├── maiz-serie-1923-2024.csv
 │   └── molienda-de-granos-a-diciembre-2017.csv
 ├── initdb/
-│   └── 01_init.sql           # esquema + tablas temporables + copy + inserts
+│   └── 000_initdb.sql        # esquema + tablas temp + COPY + inserts
 ├── scripts/
-│   └── consultas.sql         # consultas SQL sobre la base de datos
+│   └── consultas.sql         # consultas SQL de análisis
 ├── docker-compose.yml
-└── password.txt              # contraseña de postgres (no hacer commit)
+└── password.txt              # contraseña de postgres (no hacerle commit)
 ```
 
 El directorio `initdb/` es montado en `/docker-entrypoint-initdb.d/` dentro del contenedor. PostgreSQL ejecuta automáticamente todos los `.sql` que encuentre ahí al inicializarse por primera vez.
@@ -55,8 +55,9 @@ El directorio `initdb/` es montado en `/docker-entrypoint-initdb.d/` dentro del 
 | Archivo | Descripción | Filas |
 |---|---|---|
 | `trigo-serie-1927-2025.csv` | Detalle por departamento y campaña de trigo | 25.232 |
-| `maiz-serie-1923-2024.csv` | Detalle por departamento y campaña de maíz | 33.519 |
-| `molienda-de-granos-a-diciembre-2017.csv` | Molienda por país hasta 2017 | 69 |
+| `maiz-serie-1923-2024.csv` | Detalle por departamento y campaña de maíz | 33.518 |
+| `molienda-de-granos-a-diciembre-2017.csv` | Molienda por país hasta 2017 | 68 |
+
 
 ---
 
@@ -65,101 +66,195 @@ El directorio `initdb/` es montado en `/docker-entrypoint-initdb.d/` dentro del 
 Las entidades principales son:
 
 - **paises / provincias / departamentos** — jerarquía geográfica
-- **cultivos** — catálogo de cultivos (trigo, maíz, etc.)
-- **siembras / cosechas** — datos de superficie por campaña
-- **campanias** — unidad central que vincula cultivo, departamento, siembra y cosecha
-- **unidades\_de\_medida / moliendas** — datos de molienda industrial por país
+- **cultivos** — catálogo de cultivos (trigo, maíz, trigo pan, trigo candeal)
+- **siembras / cosechas** — datos de superficie y producción por campaña y departamento
+- **unidades\_de\_medida / moliendas** — datos de molienda industrial por país y año
 
 ---
 
 ## 5. Proceso ETL
 
-### 5.1 Extract: detección de encoding
-
-El primer paso del proceso fue inspeccionar los archivos fuente para determinar su codificación real, ya que los datos públicos argentinos no siempre vienen en UTF-8.
-
-Se utilizó el comando `file` de Linux sobre cada CSV:
-
+### 5.1 Extract: verificación de encoding
+ 
+El primer paso fue inspeccionar los archivos fuente para determinar su codificación, utilizando el comando `file` de Linux:
+ 
 ```bash
 file csv/*.csv
 ```
-
+ 
 Resultado:
-
+ 
 ```
-csv/maiz-serie-1923-2024.csv:                CSV ISO-8859 text
-csv/molienda-de-granos-a-diciembre-2017.csv: CSV ISO-8859 text
-csv/trigo-serie-1927-2025.csv:               CSV ISO-8859 text
+csv/maiz-serie-1923-2024.csv:                CSV Unicode text, UTF-8 text
+csv/molienda-de-granos-a-diciembre-2017.csv: CSV Unicode text, UTF-8 text
+csv/trigo-serie-1927-2025.csv:               CSV Unicode text, UTF-8 text
 ```
-
-Los archivos detectados como `ISO-8859` presentaban caracteres corruptos cuando se intentaba leerlos como UTF-8. Esto se debe a que ISO-8859-1 (también llamado LATIN1) utiliza un esquema de un byte por carácter donde los valores por encima de 127 no coinciden con los del estándar UTF-8.
-
+ 
+Los tres archivos están en UTF-8, por lo que no requirieron conversión de encoding. Se cargan directamente con `ENCODING 'UTF-8'` en el comando `COPY`.
+ 
 ### 5.2 Tablas staging
-
-Antes de cargar los datos al modelo final se creó una tabla staging por cada archivo CSV, por los siguientes motivos:
-
-**Separación de responsabilidades:** El staging actúa como zona intermedia cuyo único objetivo es recibir el archivo tal como viene, sin imponer ninguna restricción. La validación, limpieza y transformación ocurren en la etapa posterior.
-
-**Sin claves primarias ni foráneas:** Las tablas staging no representan entidades del dominio, son solo una copia del archivo fuente.
-
-**Una tabla por CSV:** Cada archivo tiene una estructura de columnas diferente.
-
-### 5.3 Transform & Load: COPY con conversión de encoding
-
-La carga al staging se realiza con el comando `COPY` de PostgreSQL, que es la forma más eficiente de importar archivos CSV con datos masivos.
-
-El parámetro clave en este caso es el `ENCODING`, que le indica a PostgreSQL en qué codificación está escrito el archivo original. PostgreSQL lee los bytes con ese esquema y los convierte automáticamente a UTF-8, el encoding por defecto de la base de datos, durante la carga. El archivo original no se modifica.
-
-**Ejemplo:**
+ 
+Antes de cargar los datos al modelo final se creó una tabla staging temporal `TEMP TABLE` por cada archivo CSV. Estas tablas actúan como zona intermedia con las siguientes características:
+ 
+**Separación de responsabilidades.** El staging es el paso Extract del ETL, su único objetivo es recibir el archivo tal como viene.
+ 
+**Sin claves primarias ni foráneas.** Las tablas staging no representan entidades del dominio, son una copia fiel del archivo fuente.
+ 
+### 5.3 Transform & Load
+ 
+La carga al staging se realiza con el comando `COPY` de PostgreSQL, la forma más eficiente de importar archivos CSV masivos — trabaja en modo bulk con mínimo overhead:
+ 
 ```sql
-COPY tmp_trigo_serie
-FROM '/csv/trigo-serie-1923-2025.csv'
-WITH (FORMAT CSV, HEADER true, DELIMITER ',', ENCODING 'LATIN1');
+COPY tmp_maiz_serie
+FROM '/csv/maiz-serie-1923-2024.csv'
+WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'UTF-8');
 ```
-
-> `LATIN1` es el nombre que usa PostgreSQL para referirse al estándar ISO-8859-1.
-
+ 
+El parámetro `HEADER true` indica que la primera fila del archivo contiene los nombres de columna. PostgreSQL los usa para mapear cada valor a la columna correspondiente de la tabla staging, por lo que los nombres de columna en el `CREATE TEMP TABLE` deben coincidir exactamente con los headers del CSV.
+ 
+Una vez en el staging, los datos se insertan en las tablas de entidad. Se tomaron las siguientes decisiones de diseño:
+ 
+**DISTINCT ON** para evitar duplicados al poblar las tablas de dimensión, ya que los mismos departamentos y provincias aparecen repetidos en miles de filas de los CSV:
+ 
+```sql
+INSERT INTO provincias (id, nombre, pais_id)
+SELECT DISTINCT ON (provincia_id)
+    provincia_id,
+    provincia,
+    (SELECT id FROM paises WHERE LOWER(nombre) = 'argentina')
+FROM (
+    SELECT provincia_id, provincia FROM tmp_maiz_serie
+    UNION ALL
+    SELECT provincia_id, provincia FROM tmp_trigo_serie
+) AS datos_provincias;
+```
+ 
+**UNION ALL** para combinar los datos de trigo y maíz en una sola inserción hacia siembras y cosechas, dado que ambos CSV tienen exactamente la misma estructura de columnas.
+ 
+**COALESCE** para reemplazar valores nulos por cero en los campos numéricos, ya que algunos registros históricos no tienen datos de superficie o producción:
+ 
+```sql
+COALESCE(superficie_sembrada_ha, 0)
+```
+ 
+**Datos descartados deliberadamente.** Durante el Transform se omiten las columnas calculables, ya que pueden derivarse de los datos almacenados mediante consultas SQL.
+ 
 ---
-
+ 
 ## 6. Levantar el entorno
-
+ 
 ```bash
-# Primera vez, construye y carga todo
+# Primera vez: construye y carga todo automáticamente
 docker compose up -d
-
-# Para ver los logs del contenedor de base de datos
+ 
+# Ver logs del contenedor de base de datos
 docker compose logs db
-
+ 
 # Conectarse con psql desde la terminal
 docker exec -it practicoetl-db-1 psql -U postgres
-
-# Detener sin borrar los datos
+ 
+# Detener sin borrar datos
 docker compose down
-
-# Detener y borrar los volúmenes
+ 
+# Detener y borrar volúmenes, re-ejecuta el initdb
 docker compose down -v
 ```
-
-> **Importante:** los scripts en `initdb/` se ejecutan **una sola vez**, cuando el volumen de datos está vacío. Si ya existe el volumen de una ejecución anterior (por haber hecho `docker compose down`), Docker no los vuelve a correr. Para forzar una reinicialización completa se debe usar `docker compose down -v` antes de volver a levantar el contenedor.
-
+ 
 ---
-
+ 
 ## 7. Consultas SQL
-
-> El análisis de los datos mediante las consultas SQL puede realizarse desde la terminal, conectándose al contenedor mediante el comando anterior, o bien desde pgAdmin conectándose a la url http://localhost:80, o al puerto que se haya configurado en el `docker-compose.yml`.
-
-```yml
-pgadmin:
-   image: dpage/pgadmin4
-      environment:
-         - PGADMIN_DEFAULT_EMAIL=postgresql@postgresql.com
-         - PGADMIN_DEFAULT_PASSWORD_FILE=/run/secrets/db-password
-      secrets:
-         - db-password
-      ports:
-         - 80:80 # <-- Puerto para la url
-      depends_on:
-         db:
-            condition: service_healthy
+ 
+Las consultas pueden ejecutarse desde psql en la terminal o desde pgAdmin en `http://localhost:80`. Para conectarse desde pgAdmin, agregar un servidor con host `db`, puerto `5432` y usuario `postgres`.
+ 
+---
+ 
+### Consulta 1: Porcentaje de maíz cosechado llevado a molienda
+ 
+**Pregunta:** ¿Qué porcentaje de la producción de maíz de cada año terminó siendo molido?
+ 
+```sql
+SELECT
+    co.anio,
+    co.cultivo,
+    SUM(co.produccion_tm) AS produccion_total,
+    m.cantidad AS cantidad_molienda_total,
+    ROUND((m.cantidad) * 100 / SUM(co.produccion_tm)::NUMERIC, 2) AS porcentaje_molienda
+FROM cosechas co
+JOIN moliendas m ON co.anio = m.anio AND co.cultivo = m.cultivo
+GROUP BY co.anio, co.cultivo, m.cantidad
+ORDER BY co.anio;
 ```
-
+ 
+**Técnicas utilizadas:** `JOIN` entre `cosechas` y `moliendas` por año y cultivo, `SUM` para agregar la producción total por año a nivel nacional, `ROUND` para presentar el porcentaje con dos decimales. El porcentaje se calcula como `cantidad_molienda / produccion_total * 100`.
+ 
+---
+ 
+### Consulta 2: Porcentaje de trigo cosechado llevado a molienda
+ 
+**Pregunta:** ¿Qué porcentaje de la producción total de trigo se destinó a molienda cada año?
+ 
+```sql
+SELECT
+    co.anio,
+    co.cultivo,
+    SUM(co.produccion_tm) AS produccion_total,
+    m.cantidad_molienda_total,
+    ROUND((m.cantidad_molienda_total * 100 / SUM(co.produccion_tm))::NUMERIC, 2) AS porcentaje_molienda
+FROM cosechas co
+JOIN (
+    SELECT anio, SUM(cantidad) AS cantidad_molienda_total
+    FROM moliendas
+    WHERE cultivo ILIKE 'trigo%'
+    GROUP BY anio
+) AS m ON co.anio = m.anio AND co.cultivo = 'trigo'
+GROUP BY co.anio, co.cultivo, cantidad_molienda_total
+ORDER BY co.anio;
+```
+ 
+**Técnicas utilizadas:** subquery en el `JOIN` para pre-agregar la molienda de todos los tipos de trigo (`trigo pan` y `trigo candeal`) usando `ILIKE 'trigo%'` antes de cruzarla con la producción. Esto permite comparar la producción total de trigo contra el total molido independientemente del subtipo.
+ 
+---
+ 
+### Consulta 3: TOP 10 departamentos con mayor producción en 2017
+ 
+**Pregunta:** ¿Cuáles fueron los 10 departamentos con mayor producción de cada cultivo en el último año registrado?
+ 
+```sql
+SELECT
+    co.anio,
+    co.cultivo,
+    de.nombre AS nombre_departamento,
+    SUM(co.produccion_tm) AS produccion_total
+FROM cosechas co
+JOIN departamentos de ON co.departamento_id = de.id AND co.anio = 2017
+GROUP BY de.nombre, co.anio, co.cultivo, co.produccion_tm
+ORDER BY SUM(co.produccion_tm) DESC
+LIMIT 10;
+```
+ 
+**Técnicas utilizadas:** `JOIN` entre `cosechas` y `departamentos` filtrando directamente en la condición del JOIN por `anio = 2017`, `GROUP BY` por departamento y cultivo, `ORDER BY` descendente sobre la producción agregada y `LIMIT 10` para quedarse con los mayores productores.
+ 
+---
+ 
+### Consulta 4: Relación siembra-cosecha por cultivo y año
+ 
+**Pregunta:** ¿Qué porcentaje de la superficie sembrada logró cosecharse efectivamente cada año, para cada cultivo?
+ 
+```sql
+SELECT
+    co.anio,
+    co.cultivo,
+    SUM(co.superficie_cosechada_ha) AS superficie_cosechada_total,
+    superficie_sembrada_total,
+    ROUND(SUM(co.superficie_cosechada_ha) * 100 / (superficie_sembrada_total)::NUMERIC, 2) AS porcentaje_cosecha_de_lo_sembrado
+FROM cosechas co
+JOIN (
+    SELECT cultivo, anio, SUM(superficie_sembrada_ha) AS superficie_sembrada_total
+    FROM siembras
+    GROUP BY anio, cultivo
+) AS s ON co.anio = s.anio AND co.cultivo = s.cultivo
+GROUP BY co.anio, co.cultivo, superficie_sembrada_total
+ORDER BY co.anio DESC;
+```
+ 
+**Técnicas utilizadas:** subquery en el `JOIN` para pre-agregar la superficie sembrada desde la tabla `siembras` por año y cultivo, que luego se cruza con `cosechas`. El porcentaje resultante indica la tasa de éxito de cada campaña: valores cercanos a 100% significan que casi todo lo sembrado se cosechó, valores bajos indican pérdidas por heladas, sequías u otras causas. Esta consulta cruza las tres tablas centrales del modelo (`siembras`, `cosechas`, y el JOIN implícito por cultivo/año).

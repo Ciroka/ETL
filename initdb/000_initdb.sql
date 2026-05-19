@@ -8,7 +8,7 @@ DROP TABLE IF EXISTS campanias CASCADE;
 DROP TABLE IF EXISTS siembras CASCADE;
 DROP TABLE IF EXISTS cosechas CASCADE;
 DROP TABLE IF EXISTS cultivos CASCADE;
-DROP TABLE IF EXISTS provicias CASCADE;
+DROP TABLE IF EXISTS provincias CASCADE;
 DROP TABLE IF EXISTS paises CASCADE;
 DROP TABLE IF EXISTS departamentos CASCADE;
 DROP TABLE IF EXISTS unidades_de_medida CASCADE;
@@ -238,7 +238,7 @@ FROM (
         superficie_sembrada_ha,
         departamento_id,
         anio,
-        REPLACE(cultivo, 'maï¿½z', 'maíz') AS cultivo
+        cultivo
     FROM tmp_maiz_serie
     UNION ALL
     SELECT 
@@ -267,7 +267,7 @@ FROM (
     SELECT
         superficie_cosechada_ha,
         anio,
-        REPLACE(cultivo, 'maï¿½z', 'maíz') AS cultivo,
+        cultivo,
         departamento_id,
         produccion_tm
     FROM tmp_maiz_serie
