@@ -39,9 +39,9 @@ practicoetl/
 │   ├── maiz-serie-1923-2024.csv
 │   └── molienda-de-granos-a-diciembre-2017.csv
 ├── initdb/
-│   └── 000_initdb.sql        # esquema + tablas temp + COPY + inserts
+│   └── 000_initdb.sql        # esquema + tablas temp + COPY + inserts (script de inicialización de la base de datos)
 ├── scripts/
-│   └── consultas.sql         # consultas SQL de análisis
+│   └── consultas.sql         # consultas SQL de análisis de datos
 ├── docker-compose.yml
 └── password.txt              # contraseña de postgres (no hacerle commit)
 ```
@@ -182,7 +182,7 @@ SELECT
 FROM cosechas co
 JOIN moliendas m ON co.anio = m.anio AND co.cultivo = m.cultivo
 GROUP BY co.anio, co.cultivo, m.cantidad
-ORDER BY co.anio;
+ORDER BY co.anio DESC;
 ```
  
 **Técnicas utilizadas:** `JOIN` entre `cosechas` y `moliendas` por año y cultivo, `SUM` para agregar la producción total por año a nivel nacional, `ROUND` para presentar el porcentaje con dos decimales. El porcentaje se calcula como `cantidad_molienda / produccion_total * 100`.
@@ -208,7 +208,7 @@ JOIN (
     GROUP BY anio
 ) AS m ON co.anio = m.anio AND co.cultivo = 'trigo'
 GROUP BY co.anio, co.cultivo, cantidad_molienda_total
-ORDER BY co.anio;
+ORDER BY co.anio DESC;
 ```
  
 **Técnicas utilizadas:** subquery en el `JOIN` para pre-agregar la molienda de todos los tipos de trigo (`trigo pan` y `trigo candeal`) usando `ILIKE 'trigo%'` antes de cruzarla con la producción. Esto permite comparar la producción total de trigo contra el total molido independientemente del subtipo.
@@ -227,7 +227,7 @@ SELECT
     SUM(co.produccion_tm) AS produccion_total
 FROM cosechas co
 JOIN departamentos de ON co.departamento_id = de.id AND co.anio = 2017
-GROUP BY de.nombre, co.anio, co.cultivo, co.produccion_tm
+GROUP BY de.nombre, co.anio, co.cultivo
 ORDER BY SUM(co.produccion_tm) DESC
 LIMIT 10;
 ```

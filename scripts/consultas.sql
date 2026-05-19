@@ -10,7 +10,7 @@ SELECT
 FROM cosechas co
 JOIN moliendas m ON co.anio = m.anio AND co.cultivo = m.cultivo 
 GROUP BY co.anio, co.cultivo, m.cantidad
-ORDER BY co.anio;
+ORDER BY co.anio DESC;
 
 -- CONSULTA 2
 -- Determinar el porcentaje del trigo cosechado que se llevo a molienda
@@ -29,7 +29,7 @@ JOIN (
     GROUP BY anio
 ) AS m ON co.anio = m.anio AND co.cultivo = 'trigo'
 GROUP BY co.anio, co.cultivo, cantidad_molienda_total
-ORDER BY co.anio;
+ORDER BY co.anio DESC;
 
 -- CONSULTA 3
 -- TOP 10 departamentos con mayor producción de ambos cultivos en el último año registrado (2017)
@@ -40,7 +40,7 @@ SELECT
     SUM(co.produccion_tm) AS produccion_total
 FROM cosechas co
 JOIN departamentos de ON co.departamento_id = de.id AND co.anio = 2017
-GROUP BY de.nombre, co.anio, co.cultivo, co.produccion_tm
+GROUP BY de.nombre, co.anio, co.cultivo
 ORDER BY SUM(co.produccion_tm) DESC
 LIMIT 10;
 
