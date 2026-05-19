@@ -131,15 +131,15 @@ CREATE TEMP TABLE tmp_molienda_granos (
 
 COPY tmp_maiz_serie
 FROM '/csv/maiz-serie-1923-2024.csv'
-WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'LATIN1');
+WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'UTF-8');
 
 COPY tmp_trigo_serie 
 FROM '/csv/trigo-serie-1927-2025.csv'
-WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'LATIN1');
+WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'UTF-8');
 
 COPY tmp_molienda_granos
 FROM '/csv/molienda-de-granos-a-diciembre-2017.csv'
-WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'LATIN1');
+WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'UTF-8');
 
 -- El ENCODING indica la codificación del archivo original. PostgreSQL lo lee en base
 -- a ese formato y luego lo transforma a UTF-8 para almacenar los datos.
