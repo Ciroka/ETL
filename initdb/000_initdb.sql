@@ -4,7 +4,6 @@
 -- Paso 1: Eliminación de tablas para re-inicilización del contenedor
 
 DROP TABLE IF EXISTS moliendas CASCADE;
-DROP TABLE IF EXISTS campanias CASCADE;
 DROP TABLE IF EXISTS siembras CASCADE;
 DROP TABLE IF EXISTS cosechas CASCADE;
 DROP TABLE IF EXISTS cultivos CASCADE;
