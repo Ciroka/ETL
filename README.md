@@ -59,7 +59,7 @@ practicoetl/
 ├── scripts/
 │   └── consultas.sql         # consultas SQL de análisis de datos
 ├── docker-compose.yml
-└── password.txt              # contraseña de postgres (no hacerle commit)
+└── password.txt              # contraseña de postgres, elegir cualquiera (no hacerle commit)
 ```
 
 ### 2.1 Archivo docker-compose.yml
