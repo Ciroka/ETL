@@ -11,14 +11,10 @@
 
 1. [Requisitos](#1-requisitos)
 2. [Estructura del proyecto](#2-estructura-del-proyecto)
-3. [Datasets utilizados](#3-datasets-utilizados)
-4. [Modelo de base de datos](#4-modelo-de-base-de-datos)
-5. [Proceso ETL](#5-proceso-etl)
-   - [Extract: detección y corrección de encoding](#51-extract-detección-y-corrección-de-encoding)
-   - [Tablas staging](#52-tablas-staging)
-   - [Transform & Load](#53-transform--load)
-6. [Levantar el entorno](#6-levantar-el-entorno)
-7. [Consultas SQL](#7-consultas-sql)
+3. [Modelo de base de datos](#3-modelo-de-base-de-datos)
+4. [Proceso ETL](#4-proceso-etl)
+5. [Levantar el entorno](#5-levantar-el-entorno)
+6. [Consultas SQL](#6-consultas-sql)
 
 ---
 
@@ -28,9 +24,29 @@
 
 No se requiere instalar PostgreSQL ni ninguna otra dependencia localmente.
 
+### 1.1 Datasets requeridos
+
+Los archivos csv requeridos son extraidos de los datasets del gobierno. Se puede acceder a ellos mediante el recurso: [Portal de Datos Abiertos de la República Argentina](https://www.datos.gob.ar/dataset)
+
+Se utilizan los siguientes datasets:
+- Maíz - siembra, cosecha, producción, rendimiento
+- Trigo - siembra, cosecha, producción, rendimiento
+- Granos - Molienda
+
+### 1.2 CSVs seleccionados
+
+Cada dataset de los seleccionados posee 2 archivos .csv, de los cuales utilizamos:
+
+| Dataset | Archivo | Descripción
+|---|---|---|
+| Maíz - siembra, cosecha, producción, rendimiento | `maiz-serie-1923-2024.csv` | Detalle por departamento y campaña de maíz |
+| Trigo - siembra, cosecha, producción, rendimiento | `trigo-serie-1927-2025.csv` | Detalle por departamento y campaña de trigo |
+| Granos - Molienda | `molienda-de-granos-a-diciembre-2017.csv` | Molienda por país hasta 2017 |
+
 ---
 
 ## 2. Estructura del proyecto
+Armar la siguiente estructura.
 
 ```
 practicoetl/
@@ -46,22 +62,59 @@ practicoetl/
 └── password.txt              # contraseña de postgres (no hacerle commit)
 ```
 
+### 2.1 Archivo docker-compose.yml
+
+Crear el archivo `docker-compose.yml` con el siguiente contenido:
+
+```yml
+volumes: 
+  postgres-db:
+      external: false  
+
+secrets:
+  db-password:
+    file: password.txt
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db-password
+      POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=es-AR --auth-local=trust"
+      PGCLIENTENCODING: "UTF8"
+    secrets: 
+      - db-password
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready" ]
+      interval: 10s
+      timeout: 2s
+      retries: 5
+    volumes: 
+      - postgres-db:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d
+      - ./csv:/csv     # <-- Importante para poder utilizar los archivos csv para los COPY a las tablas temporales
+    ports:
+      - 5438:5438
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=postgresql@postgresql.com
+      - PGADMIN_DEFAULT_PASSWORD_FILE=/run/secrets/db-password
+    secrets:
+      - db-password
+    ports:
+      - 80:80
+    depends_on:
+      db:
+        condition: service_healthy
+```
+
 El directorio `initdb/` es montado en `/docker-entrypoint-initdb.d/` dentro del contenedor. PostgreSQL ejecuta automáticamente todos los `.sql` que encuentre ahí al inicializarse por primera vez.
 
 ---
 
-## 3. Datasets utilizados
-
-| Archivo | Descripción | Filas |
-|---|---|---|
-| `trigo-serie-1927-2025.csv` | Detalle por departamento y campaña de trigo | 25.232 |
-| `maiz-serie-1923-2024.csv` | Detalle por departamento y campaña de maíz | 33.518 |
-| `molienda-de-granos-a-diciembre-2017.csv` | Molienda por país hasta 2017 | 68 |
-
-
----
-
-## 4. Modelo de base de datos
+## 3. Modelo de base de datos
 
 Las entidades principales son:
 
@@ -70,11 +123,93 @@ Las entidades principales son:
 - **siembras / cosechas** — datos de superficie y producción por campaña y departamento
 - **unidades\_de\_medida / moliendas** — datos de molienda industrial por país y año
 
+Agregar el siguiente contenido al archivo `000_initdb.sql` para representar el modelo diseñado:
+
+```sql
+\set ON_ERROR_STOP on
+
+-- #################################################################
+-- Paso 1: Eliminación de tablas para re-inicilización del contenedor
+
+DROP TABLE IF EXISTS moliendas CASCADE;
+DROP TABLE IF EXISTS siembras CASCADE;
+DROP TABLE IF EXISTS cosechas CASCADE;
+DROP TABLE IF EXISTS cultivos CASCADE;
+DROP TABLE IF EXISTS provincias CASCADE;
+DROP TABLE IF EXISTS paises CASCADE;
+DROP TABLE IF EXISTS departamentos CASCADE;
+DROP TABLE IF EXISTS unidades_de_medida CASCADE;
+
+-- #################################################################
+-- Paso 2: Creación de las tablas de entidad
+
+CREATE TABLE paises (
+    id BIGINT PRIMARY KEY,
+    nombre VARCHAR(50)
+);
+
+CREATE TABLE provincias (
+    id BIGINT PRIMARY KEY,
+    nombre VARCHAR(50),
+    pais_id BIGINT,
+    CONSTRAINT fk_provincia_pais FOREIGN KEY (pais_id) REFERENCES paises(id) ON DELETE CASCADE  
+);
+
+CREATE TABLE departamentos (
+    id BIGINT PRIMARY KEY,
+    nombre VARCHAR (50),
+    provincia_id BIGINT,
+    CONSTRAINT fk_departamento_provincia FOREIGN KEY (provincia_id) REFERENCES provincias(id) ON DELETE CASCADE
+);
+
+CREATE TABLE cultivos (
+    nombre VARCHAR(50) PRIMARY KEY
+);
+
+CREATE TABLE siembras (
+    id SERIAL PRIMARY KEY,
+    superficie_sembrada_ha BIGINT,
+    cultivo VARCHAR(50),
+    departamento_id INT,
+    anio INT,
+    CONSTRAINT fk_siembra_cultivo FOREIGN KEY (cultivo) REFERENCES cultivos(nombre),
+    CONSTRAINT fk_siembra_departamento FOREIGN KEY (departamento_id) REFERENCES departamentos(id)
+);
+
+CREATE TABLE cosechas (
+    id SERIAL PRIMARY KEY,
+    superficie_cosechada_ha BIGINT,
+    cultivo VARCHAR(50),
+    departamento_id INT,
+    anio INT,
+    produccion_tm DOUBLE PRECISION,
+    CONSTRAINT fk_cosecha_cultivo FOREIGN KEY (cultivo) REFERENCES cultivos(nombre),
+    CONSTRAINT fk_cosecha_departamento FOREIGN KEY (departamento_id) REFERENCES departamentos(id)
+);
+
+CREATE TABLE unidades_de_medida (
+    id VARCHAR(10) PRIMARY KEY,
+    nombre VARCHAR(50)
+);
+
+CREATE TABLE moliendas (
+    id SERIAL PRIMARY KEY,
+    anio INT,
+    cantidad BIGINT,
+    pais_id BIGINT,
+    cultivo VARCHAR(50),
+    unidad_medida_id VARCHAR(10),
+    CONSTRAINT fk_moliendas_pais FOREIGN KEY (pais_id) REFERENCES paises(id),
+    CONSTRAINT fk_moliendas_unidad_medida FOREIGN KEY (unidad_medida_id) REFERENCES unidades_de_medida(id),
+    CONSTRAINT fk_moliendas_cultivo FOREIGN KEY (cultivo) REFERENCES cultivos(nombre)
+);
+```
+
 ---
 
-## 5. Proceso ETL
+## 4. Proceso ETL
 
-### 5.1 Extract: verificación de encoding
+### 4.1 Extract: verificación de encoding
  
 El primer paso fue inspeccionar los archivos fuente para determinar su codificación, utilizando el comando `file` de Linux:
  
@@ -98,18 +233,86 @@ csv/trigo-serie-1927-2025.csv:               CSV Unicode text, UTF-8 text
  
 Los tres archivos están en UTF-8, por lo que no requirieron conversión de encoding. Se cargan directamente con `ENCODING 'UTF-8'` en el comando `COPY`.
  
-### 5.2 Tablas staging
+### 4.2 Tablas staging
  
 Antes de cargar los datos al modelo final se creó una tabla staging temporal `TEMP TABLE` por cada archivo CSV. Estas tablas actúan como zona intermedia con las siguientes características:
  
 **Separación de responsabilidades.** El staging es el paso Extract del ETL, su único objetivo es recibir el archivo tal como viene.
  
 **Sin claves primarias ni foráneas.** Las tablas staging no representan entidades del dominio, son una copia fiel del archivo fuente.
+
+Agregar al archivo `000_initdb.sql` el siguiente contenido, para el armado de las tablas temporables y la extracción de la información de los .csv.
+
+```sql
+-- #################################################################
+-- Paso 3: Creación de tablas temporales para datos csv.
+
+CREATE TEMP TABLE tmp_maiz_serie (
+    cultivo TEXT,
+    anio INT,
+    campania TEXT,
+    provincia TEXT,
+    provincia_id INT,
+    departamento TEXT,
+    departamento_id INT,
+    superficie_sembrada_ha INT,
+    superficie_cosechada_ha INT,
+    produccion_tm DOUBLE PRECISION,
+    rendimiento_kgxha INT
+);
+
+CREATE TEMP TABLE tmp_trigo_serie (
+    cultivo TEXT,
+    anio INT,
+    campania TEXT,
+    provincia TEXT,
+    provincia_id INT,
+    departamento TEXT,
+    departamento_id INT,
+    superficie_sembrada_ha INT,
+    superficie_cosechada_ha INT,
+    produccion_tm DOUBLE PRECISION,
+    rendimiento_kgxha INT
+);
+
+CREATE TEMP TABLE tmp_molienda_granos (
+    pais_id INT,
+    nom_pais TEXT,
+    anio INT,
+    uni_med_id TEXT,
+    nom_unimed TEXT,
+    lino INT,
+    girasol INT,
+    mani INT,
+    trigo_candeal INT,
+    trigo_pan INT,
+    maiz INT,
+    sorgo_granifero INT,
+    soja INT,
+    arroz INT
+);
+
+-- #################################################################
+-- Paso 4: Inserción de datos a las tablas temporales
+-- Se utiliza COPY para mayor eficiencia con datos masivos.
+
+COPY tmp_maiz_serie
+FROM '/csv/maiz-serie-1923-2024.csv'
+WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'UTF-8');
+
+COPY tmp_trigo_serie 
+FROM '/csv/trigo-serie-1927-2025.csv'
+WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'UTF-8');
+
+COPY tmp_molienda_granos
+FROM '/csv/molienda-de-granos-a-diciembre-2017.csv'
+WITH (FORMAT csv, HEADER true, DELIMITER ',', ENCODING 'UTF-8');
+```
  
-### 5.3 Transform & Load
+### 4.3 Transform & Load
  
-La carga al staging se realiza con el comando `COPY` de PostgreSQL, la forma más eficiente de importar archivos CSV masivos — trabaja en modo bulk con mínimo overhead:
- 
+La carga al staging se realiza con el comando `COPY` de PostgreSQL, la forma más eficiente de importar archivos CSV masivos:
+
 ```sql
 COPY tmp_maiz_serie
 FROM '/csv/maiz-serie-1923-2024.csv'
@@ -142,13 +345,222 @@ FROM (
 ```sql
 COALESCE(superficie_sembrada_ha, 0)
 ```
- 
+
 **Datos descartados deliberadamente.** Durante el Transform se omiten las columnas calculables, ya que pueden derivarse de los datos almacenados mediante consultas SQL.
  
+Agregar al archivo `000_initdb.sql` el siguiente contenido:
+
+```sql
+-- #################################################################
+-- Paso 5: Inserción de los datos temporales a las tablas de entidad.
+-- Algunos datos se desprecian por ser calculables o irrelevantes.
+
+-- NOTAS:
+-- * Utilizamos DISTINCT para no almacenar datos duplicados, por su aparición repetida en los .csv.
+-- * Utilizamos UNION ALL para juntar la información de varias tablas con campos idénticos.
+-- * COALESCE(campo, valor_por_defecto) se utilizó para reemplazar valores NULL por un valor por defecto.
+-- * REPLACE(campo, valor_original, valor_final) se utilizó para corregir errores de codificación y almacenar
+--   los datos correctamente en las tablas de entidad.
+-- * Los cultivos se insertaron de forma directa ya que solo trabajaremos con los 4 especificados.
+
+INSERT INTO paises (
+    id,
+    nombre
+)
+SELECT DISTINCT ON (pais_id)
+    pais_id,
+    nom_pais
+FROM tmp_molienda_granos;
+
+INSERT INTO provincias (
+    id,
+    nombre,
+    pais_id
+)
+SELECT DISTINCT ON (provincia_id)
+    provincia_id,
+    provincia,
+    (SELECT id FROM paises WHERE LOWER(nombre) = 'argentina')
+FROM (
+    SELECT 
+        provincia_id,
+        provincia
+    FROM tmp_maiz_serie
+    UNION ALL
+    SELECT
+        provincia_id,
+        provincia
+    FROM tmp_trigo_serie
+) AS datos_provincias;
+
+
+INSERT INTO departamentos (
+    id,
+    nombre,
+    provincia_id
+)
+SELECT DISTINCT ON (departamento_id)
+    departamento_id,
+    departamento,
+    provincia_id
+FROM (
+    SELECT 
+        departamento_id,
+        departamento,
+        provincia_id
+    FROM tmp_maiz_serie 
+    WHERE departamento_id IS NOT NULL AND departamento IS NOT NULL
+    UNION ALL
+    SELECT
+        departamento_id,
+        departamento,
+        provincia_id
+    FROM tmp_trigo_serie 
+    WHERE departamento_id IS NOT NULL AND departamento IS NOT NULL
+) AS datos_departamentos;
+
+
+INSERT INTO cultivos (nombre)
+VALUES 
+    ('trigo'),
+    ('trigo pan'),
+    ('trigo candeal'),
+    ('maíz');
+
+
+INSERT INTO siembras (
+    superficie_sembrada_ha,
+    departamento_id,
+    anio,
+    cultivo
+)
+SELECT
+    COALESCE(superficie_sembrada_ha, 0),
+    departamento_id,
+    anio,
+    cultivo
+FROM (
+    SELECT
+        superficie_sembrada_ha,
+        departamento_id,
+        anio,
+        cultivo
+    FROM tmp_maiz_serie
+    UNION ALL
+    SELECT 
+        superficie_sembrada_ha,
+        departamento_id,
+        anio,
+        cultivo
+    FROM tmp_trigo_serie
+) AS datos_siembra;
+
+
+INSERT INTO cosechas (
+    superficie_cosechada_ha,
+    anio,
+    cultivo,
+    departamento_id,
+    produccion_tm  
+)
+SELECT
+    COALESCE(superficie_cosechada_ha, 0),
+    anio,
+    cultivo,
+    departamento_id,
+    produccion_tm
+FROM (
+    SELECT
+        superficie_cosechada_ha,
+        anio,
+        cultivo,
+        departamento_id,
+        produccion_tm
+    FROM tmp_maiz_serie
+    UNION ALL
+    SELECT 
+        superficie_cosechada_ha,
+        anio,
+        cultivo,
+        departamento_id,
+        produccion_tm
+    FROM tmp_trigo_serie
+) AS datos_cosechas;
+
+
+INSERT INTO unidades_de_medida (
+    id,
+    nombre
+)
+SELECT DISTINCT ON (uni_med_id)
+    uni_med_id,
+    nom_unimed
+FROM tmp_molienda_granos;
+
+
+-- Inserción de datos de molienda sobre maíz
+INSERT INTO moliendas (
+    anio,
+    cantidad,
+    pais_id,
+    cultivo,
+    unidad_medida_id)
+SELECT 
+    anio,
+    COALESCE(maiz, 0),
+    pais_id,
+    'maíz',
+    uni_med_id
+FROM tmp_molienda_granos;
+
+-- Inserción de datos de molienda sobre trigo candeal
+INSERT INTO moliendas (
+    anio,
+    cantidad,
+    pais_id,
+    cultivo,
+    unidad_medida_id
+)
+SELECT 
+    anio,
+    COALESCE(trigo_candeal, 0),
+    pais_id,
+    'trigo candeal',
+    uni_med_id
+FROM tmp_molienda_granos;
+
+-- Inserción de datos de molienda sobre trigo pan
+INSERT INTO moliendas (
+    anio,
+    cantidad,
+    pais_id,
+    cultivo,
+    unidad_medida_id
+)
+SELECT 
+    anio,
+    COALESCE(trigo_pan, 0),
+    pais_id,
+    'trigo pan',
+    uni_med_id
+FROM tmp_molienda_granos;
+```
+
 ---
  
-## 6. Levantar el entorno
- 
+## 5. Levantar el entorno
+
+Pasos a seguir para levantar:
+
+1. Pararse en la carpeta del proyecto en terminal.
+2. Ejecutar `docker compose up -d`. El `-d` nos permite seguir utilizando la terminal, de lo contrario, continuará mostrando los logs y no podremos ejecutar más comandos.
+3. Si hay errores, leer los logs con el comando `docker compose logs db`.
+4. Para conectarse a la base de datos, ejecutar el comando `docker exec -it [nombre_del_contenedor] psql -U [usuario] -d [base_de_datos]`.
+5. En este punto ya se pueden ejecutar consultas en la terminal.
+6. Para detener el contenedor, pero persistir los datos, ejecutar el comando `docker compose down`. Para eliminar además los datos (para un reset total de la base de datos) ejecutar `docker compose down -v`.
+
+Guía final de comandos:
+
 ```bash
 # Primera vez: construye y carga todo automáticamente
 docker compose up -d
@@ -165,15 +577,90 @@ docker compose down
 # Detener y borrar volúmenes, re-ejecuta el initdb
 docker compose down -v
 ```
+---
+ 
+## 6. Consultas SQL
+
+Agregar al archivo `consultas.sql` el siguiente contenido:
+
+```sql
+-- CONSULTA 1
+-- Determinar el porcentaje del maiz cosechado que se llevo a molienda
+
+SELECT
+    co.anio,
+    co.cultivo,
+    SUM(co.produccion_tm) AS produccion_total,
+    m.cantidad AS cantidad_molienda_total,
+   	ROUND((m.cantidad) * 100 / SUM(co.produccion_tm)::NUMERIC, 2) AS porcentaje_molienda
+FROM cosechas co
+JOIN moliendas m ON co.anio = m.anio AND co.cultivo = m.cultivo 
+GROUP BY co.anio, co.cultivo, m.cantidad
+ORDER BY co.anio DESC;
+
+-- CONSULTA 2
+-- Determinar el porcentaje del trigo cosechado que se llevo a molienda
+
+SELECT
+    co.anio,
+    co.cultivo,
+    SUM(co.produccion_tm) AS produccion_total,
+	m.cantidad_molienda_total,
+    ROUND((m.cantidad_molienda_total * 100 / SUM(co.produccion_tm))::NUMERIC, 2)  AS porcentaje_molienda
+FROM cosechas co
+JOIN (
+    SELECT anio, SUM(cantidad) AS cantidad_molienda_total
+    FROM moliendas
+    WHERE cultivo ILIKE 'trigo%'
+    GROUP BY anio
+) AS m ON co.anio = m.anio AND co.cultivo = 'trigo'
+GROUP BY co.anio, co.cultivo, cantidad_molienda_total
+ORDER BY co.anio DESC;
+
+-- CONSULTA 3
+-- TOP 10 departamentos con mayor producción de ambos cultivos en el último año registrado (2017)
+SELECT
+    co.anio,
+    co.cultivo,
+	de.nombre AS nombre_departamento,
+    SUM(co.produccion_tm) AS produccion_total
+FROM cosechas co
+JOIN departamentos de ON co.departamento_id = de.id AND co.anio = 2017
+GROUP BY de.nombre, co.anio, co.cultivo
+ORDER BY SUM(co.produccion_tm) DESC
+LIMIT 10;
+
+-- CONSULTA 4
+-- Relación siembra-cosecha: qué porcentaje de lo sembrado finalmente se cosechó por cultivo y año
+SELECT
+    co.anio,
+    co.cultivo,
+    SUM(co.superficie_cosechada_ha) AS superficie_cosechada_total,
+    superficie_sembrada_total,
+    ROUND(SUM(co.superficie_cosechada_ha) * 100 / (superficie_sembrada_total)::NUMERIC, 2) AS porcentaje_cosecha_de_lo_sembrado
+FROM cosechas co
+JOIN ( 
+    SELECT cultivo, anio, SUM(superficie_sembrada_ha) AS superficie_sembrada_total
+    FROM siembras 
+    GROUP BY anio, cultivo
+) AS s ON co.anio = s.anio AND co.cultivo = s.cultivo
+GROUP BY co.anio, co.cultivo, superficie_sembrada_total
+ORDER BY co.anio DESC;
+
+```
+
+Las consultas pueden ejecutarse desde psql en la terminal o desde pgAdmin en `http://localhost:80`.
+- Para conectarse desde pgAdmin, agregar un servidor con host `db`, puerto `5432` y usuario `postgres`.
+- Para ejecutar las consultas desde la terminal, puede ejecutarse todo el archivo de consultas con el comando:
+```bash
+docker exec -i practicoetl-db-1 -U postgres < scripts/consultas.sql
+```
+
+En terminal se visualizarán los resultados de todas las consultas del archivo en orden.
 
 ---
- 
-## 7. Consultas SQL
- 
-Las consultas pueden ejecutarse desde psql en la terminal o desde pgAdmin en `http://localhost:80`. Para conectarse desde pgAdmin, agregar un servidor con host `db`, puerto `5432` y usuario `postgres`.
- 
----
- 
+### 6.1 Explicaciones de las consultas
+
 ### Consulta 1: Porcentaje de maíz cosechado llevado a molienda
  
 **Pregunta:** ¿Qué porcentaje de la producción de maíz de cada año terminó siendo molido?
