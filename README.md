@@ -732,7 +732,7 @@ LIMIT 10;
 ### Consulta 4: Relación siembra-cosecha por cultivo y año
  
 **Pregunta:** ¿Qué porcentaje de la superficie sembrada logró cosecharse efectivamente cada año, para cada cultivo?
- 
+
 ```sql
 SELECT
     co.anio,
