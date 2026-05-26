@@ -193,7 +193,7 @@ ORDER BY co.anio DESC;
  
 **Técnicas utilizadas:** `JOIN` entre `cosechas` y `moliendas` por año y cultivo, `SUM` para agregar la producción total por año a nivel nacional, `ROUND` para presentar el porcentaje con dos decimales. El porcentaje se calcula como `cantidad_molienda / produccion_total * 100`.
  
----S
+---
  
 ### Consulta 2: Porcentaje de trigo cosechado llevado a molienda
  
